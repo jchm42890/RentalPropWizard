@@ -1,0 +1,66 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Property {
+  id             String     @id @default(cuid())
+  address        String
+  city           String
+  state          String
+  zip            String
+  beds           Float?
+  baths          Float?
+  sqft           Float?
+  yearBuilt      Int?
+  propertyType   String?    @default("single_family")
+  estimatedValue Float?
+  dataSource     String?
+  dataFreshness  DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  analyses       Analysis[]
+
+  @@index([address])
+}
+
+model Analysis {
+  id          String   @id @default(cuid())
+  propertyId  String
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name        String   @default("New Analysis")
+  assumptions Json
+  projections Json?
+  grades      Json?
+  metrics     Json?
+  scenarios   Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([propertyId])
+}
+
+model RentalComp {
+  id           String   @id @default(cuid())
+  address      String
+  city         String
+  state        String
+  zip          String
+  beds         Float
+  baths        Float
+  sqft         Float?
+  rent         Float
+  propertyType String?
+  distance     Float?
+  source       String
+  fetchedAt    DateTime @default(now())
+  included     Boolean  @default(true)
+  analysisRef  String?
+
+  @@index([zip])
+  @@index([analysisRef])
+}
