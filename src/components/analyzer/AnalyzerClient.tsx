@@ -6,19 +6,20 @@ import { DEFAULT_ASSUMPTIONS } from "@/lib/defaults";
 import { DEFAULT_PASS_FAIL_RULES } from "@/lib/engines/passFailRules";
 import { InputPanel } from "./InputPanel";
 import { KpiCards } from "./KpiCards";
-import { GradeCard } from "./GradeCard";
+import { OverviewTab } from "./OverviewTab";
 import { Charts } from "./Charts";
 import { ProjectionTable } from "./ProjectionTable";
 import { DealSummaryCard } from "./DealSummaryCard";
 import { SensitivityTable } from "./SensitivityTable";
 import { ScenarioCompare } from "./ScenarioCompare";
-import { PassFailCard } from "./PassFailCard";
-import { CompsTable } from "./CompsTable";
 import { ExitCard } from "./ExitCard";
 import { RealismWarnings } from "./RealismWarnings";
+import { LiveCompsTab } from "./LiveCompsTab";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { runFullAnalysis } from "@/lib/engines/analyzer";
+import { applyPassFailRules } from "@/lib/engines/passFailRules";
 import { Building2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export function AnalyzerClient() {
   const [assumptions, setAssumptions] = useState<AnalysisAssumptions>(DEFAULT_ASSUMPTIONS);
@@ -28,7 +29,6 @@ export function AnalyzerClient() {
 
   const handleAnalyze = useCallback(() => {
     setIsLoading(true);
-    // Run synchronously but defer to next tick for UI responsiveness
     setTimeout(() => {
       try {
         const r = runFullAnalysis(assumptions, { passFailRules });
@@ -45,12 +45,18 @@ export function AnalyzerClient() {
     (newRules: PassFailRules) => {
       setPassFailRules(newRules);
       if (result) {
-        const r = runFullAnalysis(assumptions, { passFailRules: newRules });
-        setResult(r);
+        const updated = {
+          ...result,
+          passFailResult: applyPassFailRules(result.metrics, result.assumptions.loan, newRules),
+        };
+        setResult(updated);
       }
     },
-    [assumptions, result]
+    [result]
   );
+
+  const verdictColor = result?.dealSummary.verdictColor;
+  const verdict = result?.dealSummary.verdict;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -61,24 +67,22 @@ export function AnalyzerClient() {
             <Building2 className="h-6 w-6 text-blue-600" />
             <span className="text-lg font-bold text-gray-900">Rental Property Wizard</span>
           </div>
-          <span className="text-xs text-gray-400 border-l border-gray-200 pl-3 ml-1">
+          <span className="text-xs text-gray-400 border-l border-gray-200 pl-3 ml-1 hidden sm:block">
             Rental Investment Analyzer
           </span>
           {result && (
             <div className="ml-auto flex items-center gap-2">
-              <span
-                className={`text-sm font-bold px-3 py-1 rounded-full ${
-                  result.dealSummary.verdictColor === "green"
-                    ? "bg-green-100 text-green-700"
-                    : result.dealSummary.verdictColor === "yellow"
-                    ? "bg-yellow-100 text-yellow-700"
-                    : "bg-red-100 text-red-700"
-                }`}
-              >
-                {result.dealSummary.verdict}
+              <span className={cn(
+                "text-sm font-black px-4 py-1.5 rounded-full tracking-wide",
+                verdictColor === "green" ? "bg-green-100 text-green-700" :
+                verdictColor === "yellow" ? "bg-amber-100 text-amber-700" :
+                "bg-red-100 text-red-700"
+              )}>
+                {verdict === "Strong Buy" || verdict === "Buy" ? "✓ DEAL" :
+                 verdict === "Pass" || verdict === "Caution" ? "✗ NO DEAL" : "⚡ BORDERLINE"}
               </span>
-              <span className="text-xs text-gray-500">
-                Overall: {result.grades.overall.grade} ({result.grades.overall.score}/100)
+              <span className="text-xs text-gray-500 hidden md:block">
+                Grade {result.grades.overall.grade} · {result.grades.overall.score}/100
               </span>
             </div>
           )}
@@ -87,7 +91,7 @@ export function AnalyzerClient() {
 
       <div className="max-w-screen-2xl mx-auto px-4 py-6">
         <div className="flex gap-6">
-          {/* Left Sidebar — Inputs */}
+          {/* Left Sidebar */}
           <aside className="w-80 flex-shrink-0 hidden lg:block">
             <div className="sticky top-20">
               <InputPanel
@@ -99,9 +103,9 @@ export function AnalyzerClient() {
             </div>
           </aside>
 
-          {/* Main Content */}
+          {/* Main */}
           <main className="flex-1 min-w-0">
-            {/* Mobile input trigger */}
+            {/* Mobile inputs */}
             <div className="lg:hidden mb-4">
               <InputPanel
                 assumptions={assumptions}
@@ -112,51 +116,42 @@ export function AnalyzerClient() {
             </div>
 
             {!result ? (
-              <div className="flex flex-col items-center justify-center py-32 text-center">
-                <Building2 className="h-16 w-16 text-gray-300 mb-4" />
-                <h2 className="text-xl font-semibold text-gray-600 mb-2">
-                  Ready to Analyze
-                </h2>
-                <p className="text-gray-400 max-w-md">
-                  Fill in your property details on the left and click{" "}
-                  <strong>Analyze Property</strong> to get a full investment analysis.
-                </p>
-              </div>
+              <EmptyState />
             ) : (
-              <div className="space-y-5">
-                {/* Realism Warnings */}
+              <div className="space-y-4">
                 <RealismWarnings warnings={result.realism.warnings} />
 
-                {/* KPI Cards — sticky on mobile */}
+                {/* Sticky KPIs */}
                 <div className="sticky top-14 z-30 bg-gray-50 pb-2 pt-1">
                   <KpiCards result={result} />
                 </div>
 
-                {/* Tabs for the rest */}
                 <Tabs defaultValue="overview">
-                  <TabsList className="flex-wrap h-auto gap-1 bg-gray-100 p-1">
-                    <TabsTrigger value="overview">Overview</TabsTrigger>
-                    <TabsTrigger value="projections">Projections</TabsTrigger>
-                    <TabsTrigger value="charts">Charts</TabsTrigger>
-                    <TabsTrigger value="scenarios">Scenarios</TabsTrigger>
-                    <TabsTrigger value="comps">Comps</TabsTrigger>
-                    <TabsTrigger value="sensitivity">Sensitivity</TabsTrigger>
-                    <TabsTrigger value="exit">Exit</TabsTrigger>
+                  <TabsList className="flex-wrap h-auto gap-1 bg-gray-100 p-1 w-full">
+                    {[
+                      { value: "overview", label: "Overview" },
+                      { value: "comps", label: "Comps" },
+                      { value: "projections", label: "Projections" },
+                      { value: "charts", label: "Charts" },
+                      { value: "scenarios", label: "Scenarios" },
+                      { value: "sensitivity", label: "Sensitivity" },
+                      { value: "exit", label: "Exit" },
+                    ].map((t) => (
+                      <TabsTrigger key={t.value} value={t.value} className="text-xs sm:text-sm">
+                        {t.label}
+                      </TabsTrigger>
+                    ))}
                   </TabsList>
 
-                  <TabsContent value="overview" className="space-y-4 mt-4">
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                      <GradeCard grades={result.grades} risk={result.risk} />
-                      <DealSummaryCard summary={result.dealSummary} />
-                    </div>
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                      <PassFailCard
-                        result={result.passFailResult}
-                        rules={passFailRules}
-                        onRulesChange={handleRulesChange}
-                      />
-                      <MetricsSummary result={result} />
-                    </div>
+                  <TabsContent value="overview" className="mt-4">
+                    <OverviewTab result={result} onRulesChange={handleRulesChange} />
+                  </TabsContent>
+
+                  <TabsContent value="comps" className="mt-4">
+                    <LiveCompsTab
+                      assumptions={assumptions}
+                      subjectRent={assumptions.income.monthlyRent}
+                    />
                   </TabsContent>
 
                   <TabsContent value="projections" className="mt-4">
@@ -171,15 +166,8 @@ export function AnalyzerClient() {
                     <ScenarioCompare scenarios={result.scenarios} />
                   </TabsContent>
 
-                  <TabsContent value="comps" className="mt-4">
-                    <CompsTable comps={result.comps} />
-                  </TabsContent>
-
                   <TabsContent value="sensitivity" className="mt-4">
-                    <SensitivityTable
-                      sensitivity={result.sensitivity}
-                      assumptions={result.assumptions}
-                    />
+                    <SensitivityTable sensitivity={result.sensitivity} assumptions={result.assumptions} />
                   </TabsContent>
 
                   <TabsContent value="exit" className="mt-4">
@@ -195,47 +183,17 @@ export function AnalyzerClient() {
   );
 }
 
-function MetricsSummary({ result }: { result: FullAnalysisResult }) {
-  const { metrics, loan } = result;
-
-  const rows = [
-    { label: "Gross Rent Income", value: `$${(metrics.grossRentIncome / 12).toFixed(0)}/mo` },
-    { label: "Vacancy Loss", value: `-$${(metrics.vacancyLoss / 12).toFixed(0)}/mo`, neg: true },
-    { label: "Effective Gross Income", value: `$${(metrics.effectiveGrossIncome / 12).toFixed(0)}/mo` },
-    { label: "Total Expenses", value: `-$${(metrics.totalExpenses / 12).toFixed(0)}/mo`, neg: true },
-    { label: "Net Operating Income", value: `$${(metrics.noi / 12).toFixed(0)}/mo`, bold: true },
-    { label: "Debt Service", value: `-$${(metrics.debtService / 12).toFixed(0)}/mo`, neg: true },
-    { label: "Cash Flow", value: `$${(metrics.cashFlow / 12).toFixed(0)}/mo`, bold: true, positive: metrics.cashFlow >= 0 },
-    { sep: true },
-    { label: "Loan Amount", value: `$${loan.loanAmount.toLocaleString()}` },
-    { label: "Down Payment", value: `$${loan.downPayment.toLocaleString()}` },
-    { label: "Closing Costs", value: `$${loan.closingCosts.toFixed(0)}` },
-    { label: "GRM", value: metrics.grm.toFixed(1) },
-  ] as any[];
-
+function EmptyState() {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-      <h3 className="text-base font-semibold text-gray-800 mb-4">Income Statement (Year 1)</h3>
-      <div className="space-y-1.5">
-        {rows.map((r, i) =>
-          r.sep ? (
-            <div key={i} className="border-t border-gray-100 my-2" />
-          ) : (
-            <div key={i} className="flex justify-between text-sm">
-              <span className="text-gray-600">{r.label}</span>
-              <span
-                className={`font-medium ${r.bold ? "font-semibold" : ""} ${
-                  r.positive === false || r.neg ? "text-red-600" :
-                  r.positive === true ? "text-green-600" :
-                  "text-gray-800"
-                }`}
-              >
-                {r.value}
-              </span>
-            </div>
-          )
-        )}
-      </div>
+    <div className="flex flex-col items-center justify-center py-32 text-center">
+      <Building2 className="h-16 w-16 text-gray-200 mb-4" />
+      <h2 className="text-xl font-semibold text-gray-500 mb-2">Ready to Analyze</h2>
+      <p className="text-gray-400 max-w-md text-sm">
+        Enter your property details on the left, then click{" "}
+        <strong className="text-gray-500">Analyze Property</strong>.
+        <br />
+        Get an instant <strong>Deal or No Deal</strong> verdict with grades, charts, and projections.
+      </p>
     </div>
   );
 }
