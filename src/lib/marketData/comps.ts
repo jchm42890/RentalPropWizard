@@ -1,26 +1,30 @@
 /**
  * Rental Comps Service
  *
- * Priority:
- * 1. RentCast API (RENTCAST_API_KEY env) — real active listings
- * 2. Census ACS rent distribution — realistic market estimates (free, no key)
+ * Priority (first success wins):
+ *  1. Zillow via RapidAPI  (RAPIDAPI_KEY env) — live "For Rent" listings
+ *  2. RentCast             (RENTCAST_API_KEY env) — active MLS-style listings
+ *  3. US Census ACS        (free, no key) — statistical market estimates
  */
 
 import { RentalComp } from "@/lib/types";
 import { fetchCensusMedianRent } from "./censusRent";
 import { getBedMultiplier } from "./stateTaxRates";
+import { fetchZillowComps } from "./zillowComps";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export type CompsSource = "zillow" | "rentcast" | "census_estimated";
 
 export interface CompsServiceResult {
   comps: RentalComp[];
-  source: "rentcast" | "census_estimated";
+  source: CompsSource;
   sourceLabel: string;
   fetchedAt: Date;
   note?: string;
 }
 
-// ─── RentCast ────────────────────────────────────────────────────────────────
+// ─── RentCast ─────────────────────────────────────────────────────────────────
 
 const RENTCAST_BASE = "https://api.rentcast.io/v1";
 
@@ -33,9 +37,9 @@ interface RentCastListing {
   bedrooms: number;
   bathrooms: number;
   squareFootage?: number;
-  price: number;          // monthly rent
+  price: number;
   propertyType?: string;
-  distance?: number;      // miles from query point
+  distance?: number;
   listedDate?: string;
 }
 
@@ -50,7 +54,6 @@ async function fetchRentCastComps(params: {
 
   const { zipCode, bedrooms, bathrooms, limit = 12 } = params;
 
-  // Primary: listings endpoint
   const url = new URL(`${RENTCAST_BASE}/listings/rental/long-term`);
   url.searchParams.set("zipCode", zipCode);
   url.searchParams.set("bedrooms", String(bedrooms));
@@ -59,12 +62,10 @@ async function fetchRentCastComps(params: {
 
   const res = await fetch(url.toString(), {
     headers: { "X-Api-Key": key, Accept: "application/json" },
-    next: { revalidate: 3600 }, // 1-hour cache
+    next: { revalidate: 3600 },
   });
 
-  if (!res.ok) {
-    throw new Error(`RentCast ${res.status}: ${await res.text()}`);
-  }
+  if (!res.ok) throw new Error(`RentCast ${res.status}: ${await res.text()}`);
 
   const data: RentCastListing[] = await res.json();
 
@@ -80,7 +81,7 @@ async function fetchRentCastComps(params: {
     rent: l.price,
     propertyType: l.propertyType,
     distance: l.distance,
-    source: "RentCast (active listings)",
+    source: "RentCast (active listing)",
     fetchedAt: new Date(),
     included: true,
   }));
@@ -88,17 +89,13 @@ async function fetchRentCastComps(params: {
   return {
     comps,
     source: "rentcast",
-    sourceLabel: "RentCast — Active Rental Listings",
+    sourceLabel: `RentCast — ${comps.length} Active Rental Listings`,
     fetchedAt: new Date(),
   };
 }
 
-// ─── Census Fallback ─────────────────────────────────────────────────────────
+// ─── Census Fallback ──────────────────────────────────────────────────────────
 
-/**
- * Builds realistic comps from Census median rent + a synthetic distribution.
- * The spread is calibrated to typical intra-zip variance (~±20%).
- */
 async function fetchCensusComps(params: {
   zipCode: string;
   bedrooms: number;
@@ -110,51 +107,43 @@ async function fetchCensusComps(params: {
   const bedMult = getBedMultiplier(bedrooms);
 
   let baseRent: number;
-  let confidence: "medium" | "low";
   let note: string;
 
   if (censusResult.medianRent) {
     baseRent = censusResult.medianRent * bedMult;
-    confidence = "medium";
-    note = `Based on Census ACS median rent for ZIP ${zipCode}, adjusted ${bedMult.toFixed(2)}× for ${bedrooms} bed(s).`;
+    note = `Based on Census ACS ${censusResult.year} median rent for ZIP ${zipCode}, adjusted ${bedMult.toFixed(2)}× for ${bedrooms} bed(s). Add RAPIDAPI_KEY for live Zillow listings.`;
   } else {
-    // If Census returns nothing, use a very rough national median (~$1,400 for 2BR)
-    baseRent = 1400 * bedMult;
-    confidence = "low";
-    note = `Census data unavailable for ZIP ${zipCode}. Using national median estimate.`;
+    baseRent = 1_400 * bedMult;
+    note = `Census data unavailable for ZIP ${zipCode}. Using national median estimate. Add RAPIDAPI_KEY for live Zillow listings.`;
   }
 
-  // Spread pattern: simulate a realistic rent distribution around the median
   const patterns = [
-    { priceFactor: 0.88, distMi: 0.2, label: "Studio/Jr" },
-    { priceFactor: 0.93, distMi: 0.4, label: "Updated" },
-    { priceFactor: 0.96, distMi: 0.6, label: "Corner" },
-    { priceFactor: 1.00, distMi: 0.8, label: "Standard" },
-    { priceFactor: 1.03, distMi: 1.1, label: "Renovated" },
-    { priceFactor: 1.07, distMi: 1.4, label: "Newer" },
-    { priceFactor: 1.11, distMi: 1.7, label: "Premium" },
-    { priceFactor: 1.16, distMi: 2.1, label: "Luxury" },
+    { priceFactor: 0.87, distMi: 0.2, label: "Smaller unit" },
+    { priceFactor: 0.92, distMi: 0.4, label: "Older building" },
+    { priceFactor: 0.96, distMi: 0.7, label: "No parking" },
+    { priceFactor: 1.00, distMi: 0.9, label: "Median" },
+    { priceFactor: 1.04, distMi: 1.2, label: "Updated kitchen" },
+    { priceFactor: 1.08, distMi: 1.6, label: "Newer construction" },
+    { priceFactor: 1.13, distMi: 2.0, label: "Premium finishes" },
+    { priceFactor: 1.19, distMi: 2.5, label: "Luxury" },
   ];
 
-  const comps: RentalComp[] = patterns.map((p, i) => {
-    const rent = Math.round((baseRent * p.priceFactor) / 25) * 25;
-    return {
-      id: `census-${zipCode}-${i}`,
-      address: `${200 + i * 47} Market St`,
-      city: "—",
-      state: "—",
-      zip: zipCode,
-      beds: bedrooms,
-      baths: bathrooms,
-      sqft: Math.round((600 + bedrooms * 350 + i * 40) / 50) * 50,
-      rent,
-      propertyType: "single_family",
-      distance: p.distMi,
-      source: `Census ACS Estimate (${p.label})`,
-      fetchedAt: new Date(),
-      included: true,
-    };
-  });
+  const comps: RentalComp[] = patterns.map((p, i) => ({
+    id: `census-${zipCode}-${i}`,
+    address: `${200 + i * 47} Market St`,
+    city: "—",
+    state: "—",
+    zip: zipCode,
+    beds: bedrooms,
+    baths: bathrooms,
+    sqft: Math.round((600 + bedrooms * 350 + i * 40) / 50) * 50,
+    rent: Math.round((baseRent * p.priceFactor) / 25) * 25,
+    propertyType: "single_family",
+    distance: p.distMi,
+    source: `Census ACS Estimate (${p.label})`,
+    fetchedAt: new Date(),
+    included: true,
+  }));
 
   return {
     comps,
@@ -173,7 +162,16 @@ export async function fetchRentalComps(params: {
   bathrooms: number;
   limit?: number;
 }): Promise<CompsServiceResult> {
-  // 1. Try RentCast if key is present
+  // 1. Zillow (RapidAPI) — live listings, best accuracy
+  if (process.env.RAPIDAPI_KEY) {
+    try {
+      return await fetchZillowComps(params);
+    } catch (err) {
+      console.warn("Zillow RapidAPI failed, trying RentCast:", err);
+    }
+  }
+
+  // 2. RentCast — active MLS-style listings
   if (process.env.RENTCAST_API_KEY) {
     try {
       return await fetchRentCastComps(params);
@@ -182,6 +180,6 @@ export async function fetchRentalComps(params: {
     }
   }
 
-  // 2. Census fallback
+  // 3. Census ACS statistical estimates (always available)
   return fetchCensusComps(params);
 }

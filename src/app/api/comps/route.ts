@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
 
     return Response.json({
       ...result,
+      hasRapidApiKey: !!process.env.RAPIDAPI_KEY,
       hasRentCastKey: !!process.env.RENTCAST_API_KEY,
     });
   } catch (err) {

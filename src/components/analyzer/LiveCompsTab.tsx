@@ -13,9 +13,10 @@ import { Button } from "@/components/ui/button";
 
 interface CompsServiceResult {
   comps: RentalComp[];
-  source: "rentcast" | "census_estimated";
+  source: "zillow" | "rentcast" | "census_estimated";
   sourceLabel: string;
   fetchedAt: string;
+  hasRapidApiKey: boolean;
   hasRentCastKey: boolean;
   note?: string;
 }
@@ -126,19 +127,22 @@ export function LiveCompsTab({ assumptions, subjectRent }: LiveCompsTabProps) {
 
         {/* Source badge */}
         {data && (
-          <div className="flex items-center gap-2 mt-3">
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
             <span className={cn(
               "inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border",
-              data.source === "rentcast"
+              data.source === "zillow"
+                ? "bg-violet-50 border-violet-200 text-violet-700"
+                : data.source === "rentcast"
                 ? "bg-green-50 border-green-200 text-green-700"
                 : "bg-blue-50 border-blue-200 text-blue-700"
             )}>
               <Database className="h-3 w-3" />
+              {data.source === "zillow" && "🏠 "}
               {data.sourceLabel}
             </span>
-            {!data.hasRentCastKey && (
+            {!data.hasRapidApiKey && (
               <span className="text-xs text-gray-400">
-                · Add <code className="bg-gray-100 px-1 rounded">RENTCAST_API_KEY</code> for live listings
+                · Add <code className="bg-gray-100 px-1 rounded">RAPIDAPI_KEY</code> for live Zillow listings
               </span>
             )}
           </div>

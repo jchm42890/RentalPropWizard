@@ -10,6 +10,7 @@ import {
 import { FullAnalysisResult } from "@/lib/types";
 import { formatCurrency, formatPercent, gradeBgColor, gradeColor, cn } from "@/lib/utils";
 import { DealVerdict } from "./DealVerdict";
+import { DealPricePanel } from "./DealPricePanel";
 import { CheckCircle2, XCircle, AlertCircle, TrendingUp, Shield, Home } from "lucide-react";
 
 interface OverviewTabProps {
@@ -442,10 +443,18 @@ export function OverviewTab({
         <DealCriteria result={result} onRulesChange={onRulesChange} />
       </div>
 
-      {/* Key metrics + Narrative */}
+      {/* Deal Price + Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <KeyMetrics result={result} />
-        <DealNarrative result={result} />
+        <div>
+          <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2 px-1">
+            What price makes this a deal?
+          </h3>
+          <DealPricePanel assumptions={result.assumptions} />
+        </div>
+        <div className="space-y-4">
+          <KeyMetrics result={result} />
+          <DealNarrative result={result} />
+        </div>
       </div>
     </div>
   );
