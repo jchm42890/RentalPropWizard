@@ -2,19 +2,21 @@
  * Rental Comps Service
  *
  * Priority (first success wins):
- *  1. Zillow via RapidAPI  (RAPIDAPI_KEY env) — live "For Rent" listings
- *  2. RentCast             (RENTCAST_API_KEY env) — active MLS-style listings
- *  3. US Census ACS        (free, no key) — statistical market estimates
+ *  1. Zillow via RapidAPI  (RAPIDAPI_KEY env)     — live "For Rent" listings
+ *  2. RentCast             (RENTCAST_API_KEY env)  — active MLS-style listings
+ *  3. HUD Fair Market Rents (HUD_API_TOKEN env)   — official gov't ZIP-level rents
+ *  4. US Census ACS        (free, no key)          — county/ZIP statistical estimates
  */
 
 import { RentalComp } from "@/lib/types";
 import { fetchCensusMedianRent } from "./censusRent";
 import { getBedMultiplier } from "./stateTaxRates";
 import { fetchZillowComps } from "./zillowComps";
+import { fetchHudFmr, hudFmrToMarketRent } from "./hudFmr";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type CompsSource = "zillow" | "rentcast" | "census_estimated";
+export type CompsSource = "zillow" | "rentcast" | "hud_fmr" | "census_estimated";
 
 export interface CompsServiceResult {
   comps: RentalComp[];
@@ -154,6 +156,59 @@ async function fetchCensusComps(params: {
   };
 }
 
+// ─── HUD FMR comps ────────────────────────────────────────────────────────────
+
+async function fetchHudComps(params: {
+  zipCode: string;
+  bedrooms: number;
+  bathrooms: number;
+}): Promise<CompsServiceResult> {
+  const { zipCode, bedrooms, bathrooms } = params;
+
+  const fmr = await fetchHudFmr(zipCode);
+  if (!fmr) throw new Error("HUD FMR unavailable");
+
+  // Market median ≈ FMR × 1.17 (FMR is the 40th-percentile rent)
+  const baseRent = hudFmrToMarketRent(fmr, bedrooms);
+
+  // Generate a realistic distribution around the HUD-calibrated median
+  const patterns = [
+    { priceFactor: 0.86, distMi: 0.2, label: "Budget" },
+    { priceFactor: 0.91, distMi: 0.4, label: "Older building" },
+    { priceFactor: 0.95, distMi: 0.7, label: "No parking" },
+    { priceFactor: 0.99, distMi: 0.9, label: "Standard" },
+    { priceFactor: 1.03, distMi: 1.2, label: "Updated" },
+    { priceFactor: 1.08, distMi: 1.6, label: "Renovated" },
+    { priceFactor: 1.14, distMi: 2.0, label: "Premium" },
+    { priceFactor: 1.21, distMi: 2.5, label: "Luxury" },
+  ];
+
+  const comps: RentalComp[] = patterns.map((p, i) => ({
+    id: `hud-${zipCode}-${i}`,
+    address: `${200 + i * 47} Market St`,
+    city: "—",
+    state: "—",
+    zip: zipCode,
+    beds: bedrooms,
+    baths: bathrooms,
+    sqft: Math.round((600 + bedrooms * 350 + i * 40) / 50) * 50,
+    rent: Math.round((baseRent * p.priceFactor) / 25) * 25,
+    propertyType: "single_family",
+    distance: p.distMi,
+    source: `HUD FMR Estimate (${p.label})`,
+    fetchedAt: new Date(),
+    included: true,
+  }));
+
+  return {
+    comps,
+    source: "hud_fmr",
+    sourceLabel: `HUD Fair Market Rents FY${fmr.year} — ${fmr.areaName}`,
+    fetchedAt: new Date(),
+    note: `Based on HUD Fair Market Rents for ${fmr.areaName}. FMR is the 40th-percentile rent; market median is estimated ~17% above FMR. Add RAPIDAPI_KEY for live Zillow listings.`,
+  };
+}
+
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 export async function fetchRentalComps(params: {
@@ -176,10 +231,19 @@ export async function fetchRentalComps(params: {
     try {
       return await fetchRentCastComps(params);
     } catch (err) {
-      console.warn("RentCast failed, falling back to Census:", err);
+      console.warn("RentCast failed, trying HUD FMR:", err);
     }
   }
 
-  // 3. Census ACS statistical estimates (always available)
+  // 3. HUD Fair Market Rents (HUD_API_TOKEN) — official gov't ZIP-level data
+  if (process.env.HUD_API_TOKEN) {
+    try {
+      return await fetchHudComps(params);
+    } catch (err) {
+      console.warn("HUD FMR failed, falling back to Census:", err);
+    }
+  }
+
+  // 4. Census ACS with county fallback (always available, zero tokens)
   return fetchCensusComps(params);
 }

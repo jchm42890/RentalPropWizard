@@ -1,9 +1,14 @@
 /**
  * Market Data Service
- * Aggregates rent, tax, and insurance data from public sources
+ * Aggregates rent, tax, and insurance data from public sources.
+ *
+ * Rent source priority:
+ *  1. HUD Fair Market Rents  (HUD_API_TOKEN env) — official gov't ZIP-level data
+ *  2. Census ACS 5-Year      (free, no key)      — ZIP or county median rent
  */
 
 import { fetchCensusMedianRent } from "./censusRent";
+import { fetchHudFmr, hudFmrToMarketRent } from "./hudFmr";
 import { estimatePropertyTax } from "./propertyTaxEstimate";
 import { getBedMultiplier, getInsurancePremium } from "./stateTaxRates";
 
@@ -39,31 +44,56 @@ export async function fetchMarketData(params: {
   purchasePrice: number;
 }): Promise<MarketDataResult> {
   const { zip, state, beds, purchasePrice } = params;
+  const bedMult = getBedMultiplier(beds);
 
-  // Run all fetches in parallel
-  const [rentResult, taxResult] = await Promise.all([
+  // Run census + tax + HUD in parallel for speed
+  const [censusResult, taxResult, hudResult] = await Promise.all([
     fetchCensusMedianRent(zip),
     estimatePropertyTax(state, purchasePrice, zip),
+    fetchHudFmr(zip),   // returns null if HUD_API_TOKEN not set
   ]);
 
-  // Adjust median rent for bed count
-  const bedMult = getBedMultiplier(beds);
-  const estimatedMonthlyRent = rentResult.medianRent
-    ? Math.round((rentResult.medianRent * bedMult) / 25) * 25
-    : null;
+  // ── Rent estimate ──────────────────────────────────────────────────────────
+  // Prefer HUD FMR when Census fails (suppressed ZIP data is common)
+  let estimatedMonthlyRent: number | null = null;
+  let rentSource: string;
+  let rentConfidence: "high" | "medium" | "low";
+  let rentNote: string | undefined;
+  let medianRentAllUnits: number | null = null;
 
-  // Insurance from state table (round to nearest $50)
+  if (censusResult.medianRent) {
+    // Census ZIP or county data available
+    estimatedMonthlyRent = Math.round((censusResult.medianRent * bedMult) / 25) * 25;
+    medianRentAllUnits = censusResult.medianRent;
+    rentSource = censusResult.source;
+    rentConfidence = censusResult.geography === "zip" ? "high" : "medium";
+    rentNote = censusResult.note;
+  } else if (hudResult) {
+    // Census unavailable — fall back to HUD FMR
+    const hudRent = hudFmrToMarketRent(hudResult, beds);
+    estimatedMonthlyRent = hudRent;
+    medianRentAllUnits = Math.round(hudRent / bedMult);
+    rentSource = `HUD Fair Market Rents FY${hudResult.year} — ${hudResult.areaName}`;
+    rentConfidence = "medium";
+    rentNote = `Census data unavailable for ZIP ${zip}. Using HUD FMR (40th-percentile rent + market adjustment). For live listings add RAPIDAPI_KEY.`;
+  } else {
+    // Nothing worked
+    rentSource = censusResult.source;
+    rentConfidence = "low";
+    rentNote = censusResult.note ?? `No rent data available for ZIP ${zip}. Add HUD_API_TOKEN for HUD Fair Market Rents.`;
+  }
+
+  // ── Insurance ──────────────────────────────────────────────────────────────
   const rawInsurance = getInsurancePremium(state);
-  // Scale insurance slightly with property value (higher-value = higher premium)
-  const valueScaler = Math.min(Math.max(purchasePrice / 300000, 0.6), 2.0);
+  const valueScaler = Math.min(Math.max(purchasePrice / 300_000, 0.6), 2.0);
   const estimatedAnnualInsurance = Math.round((rawInsurance * valueScaler) / 50) * 50;
 
   return {
     estimatedMonthlyRent,
-    rentSource: rentResult.source,
-    rentConfidence: rentResult.confidence,
-    rentNote: rentResult.note,
-    medianRentAllUnits: rentResult.medianRent,
+    rentSource,
+    rentConfidence,
+    rentNote,
+    medianRentAllUnits,
     bedAdjustmentMultiplier: bedMult,
 
     estimatedAnnualTax: taxResult.annualTax,
@@ -74,7 +104,11 @@ export async function fetchMarketData(params: {
     estimatedAnnualInsurance,
     insuranceSource: `State average premium (${state.toUpperCase()}) — NAIC 2023, adjusted for property value`,
 
-    dataFreshness: "2023 ACS 5-Year Estimates",
+    dataFreshness: censusResult.medianRent
+      ? `Census ACS ${censusResult.year}`
+      : hudResult
+      ? `HUD FMR FY${hudResult.year}`
+      : "Estimates only",
     zip,
     state: state.toUpperCase(),
   };

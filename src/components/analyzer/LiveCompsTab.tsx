@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 
 interface CompsServiceResult {
   comps: RentalComp[];
-  source: "zillow" | "rentcast" | "census_estimated";
+  source: "zillow" | "rentcast" | "hud_fmr" | "census_estimated";
   sourceLabel: string;
   fetchedAt: string;
   hasRapidApiKey: boolean;
@@ -134,10 +134,13 @@ export function LiveCompsTab({ assumptions, subjectRent }: LiveCompsTabProps) {
                 ? "bg-violet-50 border-violet-200 text-violet-700"
                 : data.source === "rentcast"
                 ? "bg-green-50 border-green-200 text-green-700"
+                : data.source === "hud_fmr"
+                ? "bg-amber-50 border-amber-200 text-amber-700"
                 : "bg-blue-50 border-blue-200 text-blue-700"
             )}>
               <Database className="h-3 w-3" />
               {data.source === "zillow" && "🏠 "}
+              {data.source === "hud_fmr" && "🏛️ "}
               {data.sourceLabel}
             </span>
             {!data.hasRapidApiKey && (

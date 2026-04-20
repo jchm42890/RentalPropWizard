@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
       ...result,
       hasRapidApiKey: !!process.env.RAPIDAPI_KEY,
       hasRentCastKey: !!process.env.RENTCAST_API_KEY,
+      hasHudToken: !!process.env.HUD_API_TOKEN,
     });
   } catch (err) {
     console.error("Comps API error:", err);
