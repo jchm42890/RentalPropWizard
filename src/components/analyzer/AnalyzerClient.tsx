@@ -10,8 +10,6 @@ import { OverviewTab } from "./OverviewTab";
 import { Charts } from "./Charts";
 import { ProjectionTable } from "./ProjectionTable";
 import { DealSummaryCard } from "./DealSummaryCard";
-import { SensitivityTable } from "./SensitivityTable";
-import { ScenarioCompare } from "./ScenarioCompare";
 import { ExitCard } from "./ExitCard";
 import { RealismWarnings } from "./RealismWarnings";
 import { LiveCompsTab } from "./LiveCompsTab";
@@ -133,8 +131,6 @@ export function AnalyzerClient() {
                       { value: "comps", label: "Comps" },
                       { value: "projections", label: "Projections" },
                       { value: "charts", label: "Charts" },
-                      { value: "scenarios", label: "Scenarios" },
-                      { value: "sensitivity", label: "Sensitivity" },
                       { value: "exit", label: "Exit" },
                     ].map((t) => (
                       <TabsTrigger key={t.value} value={t.value} className="text-xs sm:text-sm">
@@ -160,14 +156,6 @@ export function AnalyzerClient() {
 
                   <TabsContent value="charts" className="mt-4">
                     <Charts result={result} />
-                  </TabsContent>
-
-                  <TabsContent value="scenarios" className="mt-4">
-                    <ScenarioCompare scenarios={result.scenarios} />
-                  </TabsContent>
-
-                  <TabsContent value="sensitivity" className="mt-4">
-                    <SensitivityTable sensitivity={result.sensitivity} assumptions={result.assumptions} />
                   </TabsContent>
 
                   <TabsContent value="exit" className="mt-4">
