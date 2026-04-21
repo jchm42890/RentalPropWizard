@@ -140,41 +140,6 @@ function ExpenseDonut({ result }: { result: FullAnalysisResult }) {
   );
 }
 
-// ─── Returns Waterfall ───────────────────────────────────────────────────────
-
-function ReturnsWaterfall({ result }: { result: FullAnalysisResult }) {
-  const { exit, loan } = result;
-
-  const data = [
-    { name: "Cash Invested", bar: loan.totalCashNeeded, fill: "#e2e8f0", text: "gray" },
-    { name: "Cash Flow", bar: Math.max(0, exit.totalCashFlow), fill: "#22c55e", text: "green" },
-    { name: "Appreciation", bar: Math.max(0, exit.totalAppreciation * (1 - result.assumptions.projection.sellingCostsPct / 100)), fill: "#3b82f6", text: "blue" },
-    { name: "Principal Paydown", bar: exit.totalPrincipalPaydown, fill: "#8b5cf6", text: "purple" },
-    { name: "Tax Benefits", bar: exit.totalTaxBenefit, fill: "#14b8a6", text: "teal" },
-  ];
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-      <h4 className="text-sm font-semibold text-gray-700 mb-1">Return Sources</h4>
-      <p className="text-xs text-gray-400 mb-3">Where your returns come from over the holding period</p>
-      <ResponsiveContainer width="100%" height={180}>
-        <BarChart data={data} margin={{ left: 5, right: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-          <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-          <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-          <Tooltip
-            {...TOOLTIP_STYLE}
-            formatter={(v) => [formatCurrency(Number(v ?? 0)), ""]}
-          />
-          {data.map((d, i) => (
-            <Bar key={i} dataKey="bar" fill={d.fill} radius={[4, 4, 0, 0]} isAnimationActive={false} />
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
 // ─── 5-Year Cash Flow Mini Chart ─────────────────────────────────────────────
 
 function CashFlowMini({ result }: { result: FullAnalysisResult }) {
@@ -437,11 +402,8 @@ export function OverviewTab({
         <EquityMini result={result} />
       </div>
 
-      {/* Returns + Criteria */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <ReturnsWaterfall result={result} />
-        <DealCriteria result={result} onRulesChange={onRulesChange} />
-      </div>
+      {/* Deal Criteria */}
+      <DealCriteria result={result} onRulesChange={onRulesChange} />
 
       {/* Deal Price + Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
